@@ -56,7 +56,9 @@ Module Program
 
     Private Class ReportRow
         Public Property DataDate As DateTime
+        Public Property RoomTotal As Integer
         Public Property RoomCount As Integer
+        Public Property RoomOoo As Integer
         Public Property RoomRevenue As Decimal
         Public Property RoomOccupancyText As String = ""
         Public Property RoomOccupancyValue As Decimal?
@@ -405,7 +407,9 @@ LIMIT 1
         Dim sql = "
 SELECT
     data_date,
+    room_total,
     room_count,
+    room_ooo,
     room_revenue,
     room_occupancy,
     room_adr,
@@ -426,7 +430,9 @@ ORDER BY STR_TO_DATE(data_date, '%Y/%m/%d')
                 While reader.Read()
                     Dim row = New ReportRow With {
                         .DataDate = DateTime.ParseExact(reader.GetString("data_date"), "yyyy/MM/dd", CultureInfo.InvariantCulture),
+                        .RoomTotal = ParseInt(reader("room_total")),
                         .RoomCount = ParseInt(reader("room_count")),
+                        .RoomOoo = ParseInt(reader("room_ooo")),
                         .RoomRevenue = ParseDecimal(reader("room_revenue")),
                         .RoomOccupancyValue = ParsePercent(reader("room_occupancy").ToString()),
                         .RoomAdr = ParseDecimal(reader("room_adr")),
@@ -567,7 +573,7 @@ ORDER BY STR_TO_DATE(data_date, '%Y/%m/%d')
 
         sb.AppendLine("<table>")
         sb.AppendLine("<tr>")
-        sb.AppendLine("<th>日期</th><th>星期</th><th>入住</th><th>庫存</th><th>故障</th><th>住房率</th>")
+        sb.AppendLine("<th>日期</th><th>星期</th><th>入住</th><th>庫存</th><th>修理參觀</th><th>住房率</th>")
         For Each roomType In roomTypes
             sb.AppendLine($"<th>{WebUtility.HtmlEncode(roomType)}</th>")
         Next
@@ -575,8 +581,8 @@ ORDER BY STR_TO_DATE(data_date, '%Y/%m/%d')
         sb.AppendLine("</tr>")
 
         For Each row In detailRows
-            Dim inventoryTotal = SumIndex(row.RoomTypeData, settings.InventoryIndex)
-            Dim faultTotal = SumIndex(row.RoomTypeData, settings.FaultIndex)
+            Dim inventoryTotal = Math.Max(row.RoomTotal - row.RoomCount, 0)
+            Dim faultTotal = row.RoomOoo
             Dim occValue = If(row.RoomOccupancyValue.HasValue, row.RoomOccupancyValue.Value, 0D)
             Dim occColor = OccupancyColor(occValue)
 
