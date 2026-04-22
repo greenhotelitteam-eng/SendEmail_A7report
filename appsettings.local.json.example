@@ -1,0 +1,20 @@
+{
+  "Mysql": {
+    "ConnectionString": "Database=gh_fin;Server=192.168.96.252;Uid=root;Pwd=sbp201806!;CharSet=big5"
+  },
+  "Report": {
+    "HotelIds": [
+      "H04",
+      "H06"
+    ],
+    "SubjectTimestampFormat": "MM/dd HH:mm",
+    "DetailPastDays": 1,
+    "DetailFutureDays": 120,
+    "FutureBucketDays": [ 30, 60, 90 ],
+    "MonthCount": 4,
+    "InventoryIndex": 6,
+    "FaultIndex": 4,
+    "RoomTypeOrder": [ "DD", "DT", "ED", "EF", "HD", "S", "SD", "ST", "TP", "TR" ],
+    "OutputDir": "output"
+  }
+}

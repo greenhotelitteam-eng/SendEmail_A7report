@@ -1,0 +1,5 @@
+bin/
+obj/
+output/
+appsettings.local.json
+send_run_*.txt
