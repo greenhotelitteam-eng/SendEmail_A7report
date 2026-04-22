@@ -551,14 +551,14 @@ ORDER BY STR_TO_DATE(data_date, '%Y/%m/%d')
         sb.AppendLine("<!DOCTYPE html>")
         sb.AppendLine("<html><head><meta charset=""utf-8"">")
         sb.AppendLine("<style>")
-        sb.AppendLine("body{font-family:'Microsoft JhengHei',Arial,sans-serif;color:#111;margin:20px;}")
-        sb.AppendLine("h1{font-size:24px;margin:0 0 10px 0;font-weight:700;}")
-        sb.AppendLine(".sub{font-size:14px;color:#666;margin-bottom:16px;}")
+        sb.AppendLine("body{font-family:'Microsoft JhengHei',Arial,sans-serif;color:#111;margin:20px;font-size:13px;}")
+        sb.AppendLine("h1{font-size:20px;margin:0 0 8px 0;font-weight:700;}")
+        sb.AppendLine(".sub{font-size:12px;color:#666;margin-bottom:14px;}")
         sb.AppendLine("table{border-collapse:collapse;margin:14px 0;}")
-        sb.AppendLine("th,td{border:1px solid #888;padding:4px 8px;text-align:center;font-size:14px;white-space:nowrap;}")
+        sb.AppendLine("th,td{border:1px solid #888;padding:3px 6px;text-align:center;font-size:12px;white-space:nowrap;}")
         sb.AppendLine("th{background:#fafafa;}")
         sb.AppendLine(".label{background:#fff;font-weight:700;}")
-        sb.AppendLine(".small-note{font-size:12px;color:#444;margin-top:4px;}")
+        sb.AppendLine(".small-note{font-size:11px;color:#444;margin-top:4px;}")
         sb.AppendLine(".left{text-align:left;}")
         sb.AppendLine(".red{color:#d90000;font-weight:700;}")
         sb.AppendLine(".green{color:#0a8f08;font-weight:700;}")
@@ -569,7 +569,7 @@ ORDER BY STR_TO_DATE(data_date, '%Y/%m/%d')
         AppendSummaryTable(sb, "未來天數", "住房率", bucketSummary)
         AppendSummaryTable(sb, "年月", "住房率", monthlySummary)
 
-        sb.AppendLine("<div class=""small-note"">☆ 用房/修參/鎖控/官網/空房/總數</div>")
+        sb.AppendLine("<div class=""small-note"">☆ 房型6數字: 用房/修參/鎖控/官網/空房/總數</div>")
 
         sb.AppendLine("<table>")
         sb.AppendLine("<tr>")
@@ -592,7 +592,7 @@ ORDER BY STR_TO_DATE(data_date, '%Y/%m/%d')
             sb.AppendLine($"<td>{row.RoomCount}</td>")
             sb.AppendLine($"<td>{inventoryTotal}</td>")
             sb.AppendLine($"<td>{faultTotal}</td>")
-            sb.AppendLine($"<td style=""background:{occColor};font-weight:700;"">{WebUtility.HtmlEncode(row.RoomOccupancyText)}</td>")
+            sb.AppendLine($"<td style=""background:{occColor};color:{OccupancyTextColor(occValue)};font-weight:700;"">{WebUtility.HtmlEncode(row.RoomOccupancyText)}</td>")
 
             For Each roomType In roomTypes
                 Dim cellText = BuildRoomTypeCell(row.RoomTypeData, roomType)
@@ -605,6 +605,7 @@ ORDER BY STR_TO_DATE(data_date, '%Y/%m/%d')
         Next
 
         sb.AppendLine("</table>")
+        sb.AppendLine("<div class=""small-note"">☆ 住房率0~29%為紫色、30~59%為紅色、60~79%為黃色、80~89%為綠色、90%以上為白色</div>")
         sb.AppendLine("</body></html>")
         Return sb.ToString()
     End Function
@@ -620,7 +621,7 @@ ORDER BY STR_TO_DATE(data_date, '%Y/%m/%d')
         sb.AppendLine("<tr>")
         sb.AppendLine($"<th class=""label"">{WebUtility.HtmlEncode(valueHeader)}</th>")
         For Each row In rows
-            sb.AppendLine($"<td style=""background:{row.Color};font-weight:700;"">{WebUtility.HtmlEncode(row.Value)}</td>")
+            sb.AppendLine($"<td style=""background:{row.Color};color:{OccupancyTextColor(ParsePercent(row.Value).GetValueOrDefault())};font-weight:700;"">{WebUtility.HtmlEncode(row.Value)}</td>")
         Next
         sb.AppendLine("</tr>")
         sb.AppendLine("</table>")
@@ -654,6 +655,9 @@ ORDER BY STR_TO_DATE(data_date, '%Y/%m/%d')
     End Function
 
     Private Function OccupancyColor(value As Decimal) As String
+        If value >= 90D Then
+            Return "#ffffff"
+        End If
         If value >= 80D Then
             Return "#1e9800"
         End If
@@ -664,6 +668,13 @@ ORDER BY STR_TO_DATE(data_date, '%Y/%m/%d')
             Return "#ff2c2c"
         End If
         Return "#d0b0f4"
+    End Function
+
+    Private Function OccupancyTextColor(value As Decimal) As String
+        If value >= 90D Then
+            Return "#111111"
+        End If
+        Return "#111111"
     End Function
 
     Private Function ParseRoomData(roomData As String) As Dictionary(Of String, Integer())
