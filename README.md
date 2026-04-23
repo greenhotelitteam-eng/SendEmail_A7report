@@ -57,10 +57,17 @@ Athena 報表 Email 發送工具。
 
 每館一筆：
 
-- `func_name = 'email_recipient'`
 - `hotel_id = 'H04'`、`'H06'`...
 - `is_use = 'Y'`
 - `value` 可放純字串或 JSON
+
+預設群組：
+
+- `func_name = 'email_recipient'`
+
+早上 08:00 群組：
+
+- `func_name = 'email_recipient_morning'`
 
 純字串範例：
 
@@ -73,6 +80,19 @@ JSON 範例：
 ```json
 {"ToAddresses":["a@example.com"],"CcAddresses":["b@example.com"]}
 ```
+
+## recipient-group 參數
+
+目前支援用同一支程式切不同收件群組。
+
+對應規則：
+
+- `--recipient-group default`
+  - 讀 `email_recipient`
+- `--recipient-group morning`
+  - 讀 `email_recipient_morning`
+
+若不帶參數，預設就是 `default`。
 
 ## Email 規則
 
@@ -88,6 +108,7 @@ JSON 範例：
 
 - 最後時間是發信當下時間
 - 不是資料抓取時間
+- 住房率顯示為四捨五入後的整數 `%`
 
 ### 明細區間
 
@@ -155,6 +176,12 @@ dotnet run -- --preview-only --hotel H06 --date 2026/04/22
 dotnet run
 ```
 
+寄給早上群組：
+
+```powershell
+dotnet run -- --recipient-group morning
+```
+
 直接跑編譯檔：
 
 ```powershell
@@ -209,17 +236,15 @@ HTML 預覽會輸出到：
 
 不要同時跑。
 
+若要每天早上 `08:00` 寄給另一組收件者，可另外建一個排程：
+
+```powershell
+SendEmail_A7report.exe --recipient-group morning
+```
+
 ## 主要檔案
 
 - `Program.vb`
   - 主流程與 Email HTML 組裝
 - `appsettings.local.json.example`
   - 本機設定範例
-
-## 下次延續修改時，建議至少保留
-
-- 本專案完整資料夾
-- GitHub 最新版本
-- `athena_report01 / athena_setting / athena_info` 結構
-- Email 主旨與顏色規則
-- 哪些館要寄、寄給誰的設定方式

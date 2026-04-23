@@ -1,6 +1,6 @@
 # SendEmail_A7report Project Notes
 
-這份文件只放「下次接手時最重要的已確認規則」。
+這份文件只放下次接手時最重要的已確認規則。
 
 ## 專案目的
 
@@ -53,11 +53,41 @@
 
 ### 收件者
 
+預設群組：
+
 - `func_name = 'email_recipient'`
+
+早上群組：
+
+- `func_name = 'email_recipient_morning'`
+
+規則：
+
 - 每館一筆
 - `hotel_id` 區分不同飯店
 - `is_use = 'Y'`
 - `value` 可放純收件名單或 JSON
+
+## recipient-group 參數
+
+同一支程式可用不同參數切換收件群組。
+
+規則：
+
+- `default`
+  - 對應 `email_recipient`
+- `morning`
+  - 對應 `email_recipient_morning`
+
+若之後還要新增：
+
+- `night`
+- `manager`
+
+就延伸成：
+
+- `email_recipient_night`
+- `email_recipient_manager`
 
 ## 主旨規則
 
@@ -69,6 +99,7 @@
 
 - 最後時間要用發信當下時間
 - 不要用資料抓取時間
+- 住房率顯示為四捨五入後整數 `%`
 
 ## 明細區間規則
 
@@ -106,7 +137,6 @@ Email 內文要顯示：
 
 - 每個房型保留完整 6 個數字
 - 不裁掉
-- 資料格式來自 `GetAthenaA7`
 
 ## 住房率顏色規則
 
@@ -116,25 +146,24 @@ Email 內文要顯示：
 - `80~89%`：綠色
 - `90%以上`：白色
 
-Email 最下方也要顯示說明文字：
-
-`☆ 住房率0~29%為紫色、30~59%為紅色、60~79%為黃色、80~89%為綠色、90%以上為白色`
+底部說明文字要和實際規則一致。
 
 ## 版面規則
 
 - 內容字體已調小
-- 風格以實用、可快速閱讀為主
+- 上方兩個摘要表格欄寬一致
 - HTML 預覽輸出到 `bin\Debug\net5.0\output`
 
 ## 可攜版
 
 - `dist\SendEmail_A7report_portable`
-- 這包不需要 Python / Playwright
+- 不需要 Python / Playwright
 - 只要能連 MySQL 與 SMTP 即可
 
 ## 下次修改時優先確認
 
 1. `athena_report01` 是否已有最新資料
 2. `athena_setting` 的 sender / recipient 是否啟用
-3. 主旨時間是否仍使用發信當下時間
-4. 顏色規則與底部說明文字是否一致
+3. `recipient-group` 對應的 `func_name` 是否正確
+4. 主旨時間是否仍使用發信當下時間
+5. 顏色規則與底部說明文字是否一致

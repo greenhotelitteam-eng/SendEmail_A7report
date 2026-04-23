@@ -112,7 +112,7 @@ Module Program
                     Console.WriteLine($"HTML preview: {payload.OutputPath}")
                     Console.WriteLine($"Subject: {payload.Subject}")
 
-                    Dim recipientSettings = LoadRecipientSettings(conn, hotel.HotelId)
+                    Dim recipientSettings = LoadRecipientSettings(conn, hotel.HotelId, options.RecipientGroup)
                     Console.WriteLine($"Recipient loaded: {recipientSettings IsNot Nothing}")
 
                     If Not options.PreviewOnly Then
@@ -120,7 +120,7 @@ Module Program
                             Throw New InvalidOperationException("Missing athena_setting sender row: func_name='email_sender', is_use='Y'")
                         End If
                         If recipientSettings Is Nothing Then
-                            Throw New InvalidOperationException($"Missing athena_setting recipient row for hotel {hotel.HotelId}: func_name='email_recipient', is_use='Y'")
+                            Throw New InvalidOperationException($"Missing athena_setting recipient row for hotel {hotel.HotelId}: func_name='{ResolveRecipientFuncName(options.RecipientGroup)}', is_use='Y'")
                         End If
 
                         Dim smtpSettings = MergeMailSettings(senderSettings, recipientSettings)
@@ -137,10 +137,11 @@ Module Program
         End Try
     End Sub
 
-    Private Function ParseOptions(args As String()) As (PreviewOnly As Boolean, HotelId As String, BaseDate As DateTime?)
+    Private Function ParseOptions(args As String()) As (PreviewOnly As Boolean, HotelId As String, BaseDate As DateTime?, RecipientGroup As String)
         Dim previewOnly = False
         Dim hotelId = ""
         Dim baseDate As DateTime? = Nothing
+        Dim recipientGroup = "default"
         Dim i = 0
 
         While i < args.Length
@@ -159,6 +160,12 @@ Module Program
                     End If
                     baseDate = DateTime.ParseExact(args(i + 1), "yyyy/MM/dd", CultureInfo.InvariantCulture)
                     i += 1
+                Case "--recipient-group"
+                    If i + 1 >= args.Length Then
+                        Throw New ArgumentException("--recipient-group requires a group name")
+                    End If
+                    recipientGroup = args(i + 1).Trim()
+                    i += 1
                 Case Else
                     Throw New ArgumentException($"Unknown argument: {args(i)}")
             End Select
@@ -166,7 +173,7 @@ Module Program
             i += 1
         End While
 
-        Return (previewOnly, hotelId, baseDate)
+        Return (previewOnly, hotelId, baseDate, recipientGroup)
     End Function
 
     Private Function LoadSettings() As AppSettings
@@ -275,16 +282,17 @@ LIMIT 1
         End Using
     End Function
 
-    Private Function LoadRecipientSettings(conn As MySqlConnection, hotelId As String) As SmtpSettings
+    Private Function LoadRecipientSettings(conn As MySqlConnection, hotelId As String, recipientGroup As String) As SmtpSettings
         Const sql As String = "
 SELECT value
 FROM athena_setting
-WHERE func_name = 'email_recipient'
+WHERE func_name = @func_name
   AND hotel_id = @hotel_id
   AND UPPER(COALESCE(is_use, 'N')) = 'Y'
 LIMIT 1
 "
         Using cmd As New MySqlCommand(sql, conn)
+            cmd.Parameters.AddWithValue("@func_name", ResolveRecipientFuncName(recipientGroup))
             cmd.Parameters.AddWithValue("@hotel_id", hotelId)
             Dim raw = Convert.ToString(cmd.ExecuteScalar())
             If String.IsNullOrWhiteSpace(raw) Then
@@ -292,6 +300,15 @@ LIMIT 1
             End If
             Return ParseRecipientValue(raw)
         End Using
+    End Function
+
+    Private Function ResolveRecipientFuncName(recipientGroup As String) As String
+        Dim normalized = If(recipientGroup, "").Trim().ToLowerInvariant()
+        If String.IsNullOrWhiteSpace(normalized) OrElse normalized = "default" Then
+            Return "email_recipient"
+        End If
+
+        Return $"email_recipient_{normalized}"
     End Function
 
     Private Function ParseSenderValue(raw As String) As SmtpSettings
@@ -517,7 +534,7 @@ ORDER BY STR_TO_DATE(data_date, '%Y/%m/%d')
             Dim endDate = baseDate.AddDays(dayCount)
             Dim values = rows.Where(Function(x) x.DataDate >= startDate AndAlso x.DataDate <= endDate AndAlso x.RoomOccupancyValue.HasValue).Select(Function(x) x.RoomOccupancyValue.Value).ToList()
             Dim avg = If(values.Count = 0, 0D, values.Average())
-            items.Add(($"{previous + 1}~{dayCount}天", $"{Math.Round(avg)}%", OccupancyColor(avg)))
+            items.Add(($"{previous + 1}~{dayCount}天", FormatPercentText(avg), OccupancyColor(avg)))
             previous = dayCount
         Next
 
@@ -533,7 +550,7 @@ ORDER BY STR_TO_DATE(data_date, '%Y/%m/%d')
             Dim monthEnd = monthStart.AddMonths(1).AddDays(-1)
             Dim values = rows.Where(Function(x) x.DataDate >= monthStart AndAlso x.DataDate <= monthEnd AndAlso x.RoomOccupancyValue.HasValue).Select(Function(x) x.RoomOccupancyValue.Value).ToList()
             Dim avg = If(values.Count = 0, 0D, values.Average())
-            items.Add(($"{monthStart:yyyy/MM}", $"{Math.Round(avg)}%", OccupancyColor(avg)))
+            items.Add(($"{monthStart:yyyy/MM}", FormatPercentText(avg), OccupancyColor(avg)))
         Next
 
         Return items
@@ -558,6 +575,9 @@ ORDER BY STR_TO_DATE(data_date, '%Y/%m/%d')
         sb.AppendLine("th,td{border:1px solid #888;padding:3px 6px;text-align:center;font-size:12px;white-space:nowrap;}")
         sb.AppendLine("th{background:#fafafa;}")
         sb.AppendLine(".label{background:#fff;font-weight:700;}")
+        sb.AppendLine(".summary-table{table-layout:fixed;}")
+        sb.AppendLine(".summary-label-col{width:78px;}")
+        sb.AppendLine(".summary-value-col{width:70px;}")
         sb.AppendLine(".small-note{font-size:11px;color:#444;margin-top:4px;}")
         sb.AppendLine(".left{text-align:left;}")
         sb.AppendLine(".red{color:#d90000;font-weight:700;}")
@@ -611,7 +631,13 @@ ORDER BY STR_TO_DATE(data_date, '%Y/%m/%d')
     End Function
 
     Private Sub AppendSummaryTable(sb As StringBuilder, leftHeader As String, valueHeader As String, rows As List(Of (Label As String, Value As String, Color As String)))
-        sb.AppendLine("<table>")
+        sb.AppendLine("<table class=""summary-table"">")
+        sb.AppendLine("<colgroup>")
+        sb.AppendLine("<col class=""summary-label-col"">")
+        For Each row In rows
+            sb.AppendLine("<col class=""summary-value-col"">")
+        Next
+        sb.AppendLine("</colgroup>")
         sb.AppendLine("<tr>")
         sb.AppendLine($"<th class=""label"">{WebUtility.HtmlEncode(leftHeader)}</th>")
         For Each row In rows
@@ -749,12 +775,11 @@ ORDER BY STR_TO_DATE(data_date, '%Y/%m/%d')
             Return "0%"
         End If
 
-        Dim rounded = Math.Round(value.Value, 2)
-        If rounded = Math.Truncate(rounded) Then
-            Return $"{CInt(rounded)}%"
-        End If
+        Return $"{RoundPercentValue(value.Value)}%"
+    End Function
 
-        Return $"{rounded.ToString("0.##", CultureInfo.InvariantCulture)}%"
+    Private Function RoundPercentValue(value As Decimal) As Integer
+        Return CInt(Math.Round(value, 0, MidpointRounding.AwayFromZero))
     End Function
 
     Private Function ParseInt(value As Object) As Integer
