@@ -1,5 +1,26 @@
 # SendEmail_A7report
+ 
+## Wise SQL Server config for H04/H06
 
+H04/H06 monthly occupancy before `2026/04/08` is read from Wise SQL Server `daytot`.
+On every host that runs this program, set one of these sources:
+
+1. Environment variables: `Conn_SQLSERVER_H04`, `Conn_SQLSERVER_H06`
+2. `appsettings.local.json`:
+
+```json
+"Wise": {
+  "ConnectionStrings": {
+    "H04": "Data Source=...;Initial Catalog=HotelMis;User ID=...;Password=...;Integrated Security=False",
+    "H06": "Data Source=...;Initial Catalog=HotelMis;User ID=...;Password=...;Integrated Security=False"
+  },
+  "LegacyConfigFile": "D:\\00.VSCode\\Sendmail_WiseReportTot\\bin\\Debug\\SendmailReportTot.local.config"
+}
+```
+
+3. Legacy fallback file: `D:\00.VSCode\Sendmail_WiseReportTot\bin\Debug\SendmailReportTot.local.config`
+
+If Wise connection strings are missing on another host, the `2026/03` monthly value for H04/H06 can show as `0%`.
 Athena 報表 Email 發送工具。
 
 這個專案不直接抓 Athena 網頁，而是讀取 `athena_report01` 與 `athena_setting`，組成 HTML Email 後寄出。
@@ -35,6 +56,10 @@ Athena 報表 Email 發送工具。
   - 讀飯店名稱等資料
 - `athena_setting`
   - 讀寄件者與收件者設定
+- Wise SQL Server `daytot`
+  - 僅 H04 / H06 月住房率在 `2026/04/07` 以前使用
+  - 連線字串優先讀環境變數 `Conn_SQLSERVER_H04` / `Conn_SQLSERVER_H06`
+  - 若環境變數沒有值，會讀 `D:\00.VSCode\Sendmail_WiseReportTot\bin\Debug\SendmailReportTot.local.config`
 
 ## athena_setting 規則
 
@@ -116,6 +141,23 @@ Email 下方明細目前顯示：
 
 - 昨日
 - 今日起算未來 120 天
+
+### 月住房率摘要
+
+上方「年月」摘要固定顯示基準日上個月起算 4 個月。
+
+例如基準日是 `2026/04/28` 時，會顯示：
+
+- `2026/03`
+- `2026/04`
+- `2026/05`
+- `2026/06`
+
+H04 / H06 在 `2026/04/08` 切到 A7：
+
+- `2026/04/07` 以前從 Wise SQL Server `daytot` 計算
+- `2026/04/08` 以後從 MySQL `athena_report01` 計算
+- 跨系統月份會合併 Wise 與 A7 的住房數 / 總房數後重新計算住房率
 
 ### 明細欄位
 
@@ -214,6 +256,12 @@ HTML 預覽會輸出到：
 
 - `dist\SendEmail_A7report_portable`
 
+重新產生可攜版：
+
+```powershell
+dotnet publish -c Release -r win-x64 --self-contained true -o .\dist\SendEmail_A7report_portable
+```
+
 這一包比 `GetAthenaA7` 簡單：
 
 - 不需要 Playwright
@@ -223,6 +271,7 @@ HTML 預覽會輸出到：
 只要該主機可以：
 
 - 連 MySQL
+- H04 / H06 若要計算 2026/04/07 以前的月住房率，需能連 Wise SQL Server
 - 連 SMTP
 
 就能執行。
