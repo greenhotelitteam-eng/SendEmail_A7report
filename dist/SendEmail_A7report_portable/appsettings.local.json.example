@@ -2,6 +2,13 @@
   "Mysql": {
     "ConnectionString": "Database=gh_fin;Server=192.168.96.252;Uid=root;Pwd=sbp201806!;CharSet=big5"
   },
+  "Wise": {
+    "ConnectionStrings": {
+      "H04": "Data Source=192.168.96.xxx;Initial Catalog=HotelMis;User ID=wise_user;Password=wise_password;Integrated Security=False",
+      "H06": "Data Source=192.168.96.xxx\\SQLEXPRESS,1433;Initial Catalog=HotelMis;User ID=wise_user;Password=wise_password;Integrated Security=False"
+    },
+    "LegacyConfigFile": "D:\\00.VSCode\\Sendmail_WiseReportTot\\bin\\Debug\\SendmailReportTot.local.config"
+  },
   "Report": {
     "HotelIds": [
       "H04",

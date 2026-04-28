@@ -1,5 +1,16 @@
 # SendEmail_A7report Project Notes
+ 
+## Wise SQL Server config for H04/H06
 
+H04/H06 monthly occupancy before `2026/04/08` depends on Wise SQL Server `daytot`.
+Priority order:
+
+1. Environment variables: `Conn_SQLSERVER_H04`, `Conn_SQLSERVER_H06`
+2. `appsettings.local.json` `Wise.ConnectionStrings.H04/H06`
+3. Legacy fallback file: `D:\00.VSCode\Sendmail_WiseReportTot\bin\Debug\SendmailReportTot.local.config`
+
+When deploying to another host, copy the published files but preserve/update that host's `appsettings.local.json`.
+Make sure the `Wise` block exists there; otherwise March 2026 values for H04/H06 can fall back to `0%`.
 這份文件只放下次接手時最重要的已確認規則。
 
 ## 專案目的

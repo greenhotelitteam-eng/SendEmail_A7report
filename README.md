@@ -1,5 +1,26 @@
 # SendEmail_A7report
+ 
+## Wise SQL Server config for H04/H06
 
+H04/H06 monthly occupancy before `2026/04/08` is read from Wise SQL Server `daytot`.
+On every host that runs this program, set one of these sources:
+
+1. Environment variables: `Conn_SQLSERVER_H04`, `Conn_SQLSERVER_H06`
+2. `appsettings.local.json`:
+
+```json
+"Wise": {
+  "ConnectionStrings": {
+    "H04": "Data Source=...;Initial Catalog=HotelMis;User ID=...;Password=...;Integrated Security=False",
+    "H06": "Data Source=...;Initial Catalog=HotelMis;User ID=...;Password=...;Integrated Security=False"
+  },
+  "LegacyConfigFile": "D:\\00.VSCode\\Sendmail_WiseReportTot\\bin\\Debug\\SendmailReportTot.local.config"
+}
+```
+
+3. Legacy fallback file: `D:\00.VSCode\Sendmail_WiseReportTot\bin\Debug\SendmailReportTot.local.config`
+
+If Wise connection strings are missing on another host, the `2026/03` monthly value for H04/H06 can show as `0%`.
 Athena 報表 Email 發送工具。
 
 這個專案不直接抓 Athena 網頁，而是讀取 `athena_report01` 與 `athena_setting`，組成 HTML Email 後寄出。

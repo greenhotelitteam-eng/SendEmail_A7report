@@ -20,11 +20,22 @@ Module Program
 
     Private Class AppSettings
         Public Property Mysql As New MysqlSettings()
+        Public Property Wise As New WiseSettings()
         Public Property Report As New ReportSettings()
+        Public ReadOnly Property SubjectTimestampFormat As String
+            Get
+                Return Report.SubjectTimestampFormat
+            End Get
+        End Property
     End Class
 
     Private Class MysqlSettings
         Public Property ConnectionString As String = ""
+    End Class
+
+    Private Class WiseSettings
+        Public Property ConnectionStrings As New Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
+        Public Property LegacyConfigFile As String = WiseLocalConfigFile
     End Class
 
     Private Class SmtpSettings
@@ -112,7 +123,7 @@ Module Program
                         Continue For
                     End If
 
-                    Dim payload = BuildEmailPayload(hotel, rows, baseDate, settings.Report, outputDir)
+                    Dim payload = BuildEmailPayload(hotel, rows, baseDate, settings, outputDir)
                     File.WriteAllText(payload.OutputPath, payload.Html, Encoding.UTF8)
                     Console.WriteLine($"HTML preview: {payload.OutputPath}")
                     Console.WriteLine($"Subject: {payload.Subject}")
@@ -502,20 +513,21 @@ ORDER BY STR_TO_DATE(data_date, '%Y/%m/%d')
         Return rows
     End Function
 
-    Private Function BuildEmailPayload(hotel As HotelInfo, rows As List(Of ReportRow), baseDate As DateTime, settings As ReportSettings, outputDir As String) As EmailPayload
+    Private Function BuildEmailPayload(hotel As HotelInfo, rows As List(Of ReportRow), baseDate As DateTime, settings As AppSettings, outputDir As String) As EmailPayload
+        Dim reportSettings = settings.Report
         Dim rowMap = rows.ToDictionary(Function(x) x.DataDate, Function(x) x)
         Dim todayRow = FindNearestRow(rowMap, baseDate)
         Dim yesterdayRow = FindNearestRow(rowMap, baseDate.AddDays(-1))
         Dim latestTime = rows.Where(Function(x) x.DataLmtime.HasValue).Select(Function(x) x.DataLmtime.Value).DefaultIfEmpty(DateTime.Now).Max()
         Dim sendTime = DateTime.Now
 
-        Dim roomTypes = ResolveRoomTypes(rows, settings.RoomTypeOrder)
-        Dim summaryBuckets = BuildBucketSummary(rows, baseDate, settings.FutureBucketDays)
-        Dim monthlySummary = BuildMonthlySummary(hotel.HotelId, rows, baseDate, settings.MonthCount)
-        Dim detailRows = rows.Where(Function(x) x.DataDate >= baseDate.AddDays(-settings.DetailPastDays) AndAlso x.DataDate <= baseDate.AddDays(settings.DetailFutureDays)).ToList()
+        Dim roomTypes = ResolveRoomTypes(rows, reportSettings.RoomTypeOrder)
+        Dim summaryBuckets = BuildBucketSummary(rows, baseDate, reportSettings.FutureBucketDays)
+        Dim monthlySummary = BuildMonthlySummary(hotel.HotelId, rows, baseDate, reportSettings.MonthCount, settings.Wise)
+        Dim detailRows = rows.Where(Function(x) x.DataDate >= baseDate.AddDays(-reportSettings.DetailPastDays) AndAlso x.DataDate <= baseDate.AddDays(reportSettings.DetailFutureDays)).ToList()
 
         Dim subject = $"{hotel.HotelName}*本日:{todayRow.RoomCount}({todayRow.RoomOccupancyText})*昨日:{yesterdayRow.RoomCount}({yesterdayRow.RoomOccupancyText}) - {sendTime.ToString(settings.SubjectTimestampFormat)}"
-        Dim html = BuildHtml(hotel, subject, latestTime, summaryBuckets, monthlySummary, detailRows, roomTypes, settings)
+        Dim html = BuildHtml(hotel, subject, latestTime, summaryBuckets, monthlySummary, detailRows, roomTypes, reportSettings)
         Dim outputPath = Path.Combine(outputDir, $"{hotel.HotelId}_{baseDate:yyyyMMdd}.html")
 
         Return New EmailPayload With {
@@ -577,24 +589,24 @@ ORDER BY STR_TO_DATE(data_date, '%Y/%m/%d')
         Return items
     End Function
 
-    Private Function BuildMonthlySummary(hotelId As String, rows As List(Of ReportRow), baseDate As DateTime, monthCount As Integer) As List(Of (Label As String, Value As String, Color As String))
+    Private Function BuildMonthlySummary(hotelId As String, rows As List(Of ReportRow), baseDate As DateTime, monthCount As Integer, wiseSettings As WiseSettings) As List(Of (Label As String, Value As String, Color As String))
         Dim items As New List(Of (String, String, String))()
         Dim firstMonth = GetMonthlySummaryStartMonth(baseDate)
 
         For i = 0 To Math.Max(monthCount, 1) - 1
             Dim monthStart = firstMonth.AddMonths(i)
             Dim monthEnd = monthStart.AddMonths(1).AddDays(-1)
-            Dim avg = BuildMonthlyOccupancyValue(hotelId, rows, monthStart, monthEnd)
+            Dim avg = BuildMonthlyOccupancyValue(hotelId, rows, monthStart, monthEnd, wiseSettings)
             items.Add(($"{monthStart:yyyy/MM}", FormatPercentText(avg), OccupancyColor(avg)))
         Next
 
         Return items
     End Function
 
-    Private Function BuildMonthlyOccupancyValue(hotelId As String, rows As List(Of ReportRow), monthStart As DateTime, monthEnd As DateTime) As Decimal
+    Private Function BuildMonthlyOccupancyValue(hotelId As String, rows As List(Of ReportRow), monthStart As DateTime, monthEnd As DateTime, wiseSettings As WiseSettings) As Decimal
         If IsWiseA7Hotel(hotelId) AndAlso monthStart < WiseA7CutoverDate Then
             Dim wiseEnd = If(monthEnd < WiseA7CutoverDate, monthEnd, WiseA7CutoverDate.AddDays(-1))
-            Dim wise = LoadWiseOccupancyTotals(hotelId, monthStart, wiseEnd)
+            Dim wise = LoadWiseOccupancyTotals(hotelId, monthStart, wiseEnd, wiseSettings)
             Dim a7Start = If(monthStart > WiseA7CutoverDate, monthStart, WiseA7CutoverDate)
             Dim a7 = SumA7OccupancyTotals(rows, a7Start, monthEnd)
             Dim totalRoom = wise.TotalRoom + a7.TotalRoom
@@ -623,12 +635,12 @@ ORDER BY STR_TO_DATE(data_date, '%Y/%m/%d')
         Return (selected.Sum(Function(x) CDec(x.RoomCount)), selected.Sum(Function(x) CDec(x.RoomTotal)))
     End Function
 
-    Private Function LoadWiseOccupancyTotals(hotelId As String, startDate As DateTime, endDate As DateTime) As (RoomCount As Decimal, TotalRoom As Decimal)
+    Private Function LoadWiseOccupancyTotals(hotelId As String, startDate As DateTime, endDate As DateTime, wiseSettings As WiseSettings) As (RoomCount As Decimal, TotalRoom As Decimal)
         If endDate < startDate Then
             Return (0D, 0D)
         End If
 
-        Dim connStr = NormalizeSqlServerConnectionString(GetWiseSqlServerConnectionString(hotelId))
+        Dim connStr = NormalizeSqlServerConnectionString(GetWiseSqlServerConnectionString(hotelId, wiseSettings))
         If String.IsNullOrWhiteSpace(connStr) Then
             Return (0D, 0D)
         End If
@@ -665,20 +677,33 @@ FROM (
         Return (0D, 0D)
     End Function
 
-    Private Function GetWiseSqlServerConnectionString(hotelId As String) As String
+    Private Function GetWiseSqlServerConnectionString(hotelId As String, wiseSettings As WiseSettings) As String
         Dim key = $"Conn_SQLSERVER_{hotelId.ToUpperInvariant()}"
         Dim envValue = Environment.GetEnvironmentVariable(key)
         If Not String.IsNullOrWhiteSpace(envValue) Then
             Return envValue
         End If
 
+        If wiseSettings IsNot Nothing AndAlso wiseSettings.ConnectionStrings IsNot Nothing Then
+            Dim configValue As String = Nothing
+            If wiseSettings.ConnectionStrings.TryGetValue(hotelId.ToUpperInvariant(), configValue) AndAlso Not String.IsNullOrWhiteSpace(configValue) Then
+                Return configValue
+            End If
+            If wiseSettings.ConnectionStrings.TryGetValue(key, configValue) AndAlso Not String.IsNullOrWhiteSpace(configValue) Then
+                Return configValue
+            End If
+        End If
+
         Try
-            If Not File.Exists(WiseLocalConfigFile) Then
+            Dim legacyPath = If(wiseSettings IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(wiseSettings.LegacyConfigFile),
+                                wiseSettings.LegacyConfigFile,
+                                WiseLocalConfigFile)
+            If Not File.Exists(legacyPath) Then
                 Return ""
             End If
 
             Dim doc As New XmlDocument()
-            doc.Load(WiseLocalConfigFile)
+            doc.Load(legacyPath)
             Dim node = doc.SelectSingleNode($"/appSettings/add[@key='{key}']")
             If node Is Nothing OrElse node.Attributes("value") Is Nothing Then
                 Return ""
