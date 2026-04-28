@@ -1,5 +1,6 @@
 Imports System
 Imports System.Collections.Generic
+Imports System.Data.SqlClient
 Imports System.Globalization
 Imports System.IO
 Imports System.Linq
@@ -7,11 +8,15 @@ Imports System.Net
 Imports System.Net.Mail
 Imports System.Text
 Imports System.Text.Json
+Imports System.Xml
 Imports MySqlConnector
 
 Module Program
     Private Const LocalConfigFile As String = "appsettings.local.json"
     Private Const ExampleConfigFile As String = "appsettings.local.json.example"
+    Private Const RecipientOverrideForTesting As String = ""
+    Private Const WiseLocalConfigFile As String = "D:\00.VSCode\Sendmail_WiseReportTot\bin\Debug\SendmailReportTot.local.config"
+    Private ReadOnly WiseA7CutoverDate As DateTime = New DateTime(2026, 4, 8)
 
     Private Class AppSettings
         Public Property Mysql As New MysqlSettings()
@@ -401,6 +406,12 @@ LIMIT 1
         If String.IsNullOrWhiteSpace(fromAddress) Then
             fromAddress = senderSettings.Username
         End If
+        Dim toAddresses = recipientSettings.ToAddresses
+        Dim ccAddresses = recipientSettings.CcAddresses
+        If Not String.IsNullOrWhiteSpace(RecipientOverrideForTesting) Then
+            toAddresses = New List(Of String) From {RecipientOverrideForTesting}
+            ccAddresses = New List(Of String)()
+        End If
 
         Return New SmtpSettings With {
             .Host = senderSettings.Host,
@@ -410,15 +421,19 @@ LIMIT 1
             .Password = senderSettings.Password,
             .FromAddress = fromAddress,
             .FromDisplayName = senderSettings.FromDisplayName,
-            .ToAddresses = recipientSettings.ToAddresses,
-            .CcAddresses = recipientSettings.CcAddresses
+            .ToAddresses = toAddresses,
+            .CcAddresses = ccAddresses
         }
     End Function
 
     Private Function LoadHotelRows(conn As MySqlConnection, hotelId As String, baseDate As DateTime, settings As ReportSettings) As List(Of ReportRow)
-        Dim startDate = baseDate.AddDays(-Math.Max(settings.DetailPastDays, 1))
+        Dim detailStartDate = baseDate.AddDays(-Math.Max(settings.DetailPastDays, 1))
         Dim futureDays = Math.Max(settings.DetailFutureDays, settings.FutureBucketDays.Max())
-        Dim endDate = baseDate.AddDays(futureDays)
+        Dim detailEndDate = baseDate.AddDays(futureDays)
+        Dim monthlyStartDate = GetMonthlySummaryStartMonth(baseDate)
+        Dim monthlyEndDate = monthlyStartDate.AddMonths(Math.Max(settings.MonthCount, 1)).AddDays(-1)
+        Dim startDate = If(detailStartDate <= monthlyStartDate, detailStartDate, monthlyStartDate)
+        Dim endDate = If(detailEndDate >= monthlyEndDate, detailEndDate, monthlyEndDate)
 
         Dim rows As New List(Of ReportRow)()
         Dim sql = "
@@ -475,7 +490,7 @@ ORDER BY STR_TO_DATE(data_date, '%Y/%m/%d')
 
         Dim roomTypes = ResolveRoomTypes(rows, settings.RoomTypeOrder)
         Dim summaryBuckets = BuildBucketSummary(rows, baseDate, settings.FutureBucketDays)
-        Dim monthlySummary = BuildMonthlySummary(rows, baseDate, settings.MonthCount)
+        Dim monthlySummary = BuildMonthlySummary(hotel.HotelId, rows, baseDate, settings.MonthCount)
         Dim detailRows = rows.Where(Function(x) x.DataDate >= baseDate.AddDays(-settings.DetailPastDays) AndAlso x.DataDate <= baseDate.AddDays(settings.DetailFutureDays)).ToList()
 
         Dim subject = $"{hotel.HotelName}*本日:{todayRow.RoomCount}({todayRow.RoomOccupancyText})*昨日:{yesterdayRow.RoomCount}({yesterdayRow.RoomOccupancyText}) - {sendTime.ToString(settings.SubjectTimestampFormat)}"
@@ -541,19 +556,137 @@ ORDER BY STR_TO_DATE(data_date, '%Y/%m/%d')
         Return items
     End Function
 
-    Private Function BuildMonthlySummary(rows As List(Of ReportRow), baseDate As DateTime, monthCount As Integer) As List(Of (Label As String, Value As String, Color As String))
+    Private Function BuildMonthlySummary(hotelId As String, rows As List(Of ReportRow), baseDate As DateTime, monthCount As Integer) As List(Of (Label As String, Value As String, Color As String))
         Dim items As New List(Of (String, String, String))()
-        Dim firstMonth = New DateTime(baseDate.Year, baseDate.Month, 1)
+        Dim firstMonth = GetMonthlySummaryStartMonth(baseDate)
 
         For i = 0 To Math.Max(monthCount, 1) - 1
             Dim monthStart = firstMonth.AddMonths(i)
             Dim monthEnd = monthStart.AddMonths(1).AddDays(-1)
-            Dim values = rows.Where(Function(x) x.DataDate >= monthStart AndAlso x.DataDate <= monthEnd AndAlso x.RoomOccupancyValue.HasValue).Select(Function(x) x.RoomOccupancyValue.Value).ToList()
-            Dim avg = If(values.Count = 0, 0D, values.Average())
+            Dim avg = BuildMonthlyOccupancyValue(hotelId, rows, monthStart, monthEnd)
             items.Add(($"{monthStart:yyyy/MM}", FormatPercentText(avg), OccupancyColor(avg)))
         Next
 
         Return items
+    End Function
+
+    Private Function BuildMonthlyOccupancyValue(hotelId As String, rows As List(Of ReportRow), monthStart As DateTime, monthEnd As DateTime) As Decimal
+        If IsWiseA7Hotel(hotelId) AndAlso monthStart < WiseA7CutoverDate Then
+            Dim wiseEnd = If(monthEnd < WiseA7CutoverDate, monthEnd, WiseA7CutoverDate.AddDays(-1))
+            Dim wise = LoadWiseOccupancyTotals(hotelId, monthStart, wiseEnd)
+            Dim a7Start = If(monthStart > WiseA7CutoverDate, monthStart, WiseA7CutoverDate)
+            Dim a7 = SumA7OccupancyTotals(rows, a7Start, monthEnd)
+            Dim totalRoom = wise.TotalRoom + a7.TotalRoom
+            If totalRoom > 0D Then
+                Return Math.Round(((wise.RoomCount + a7.RoomCount) * 100D) / totalRoom, 2, MidpointRounding.AwayFromZero)
+            End If
+        End If
+
+        Dim values = rows.Where(Function(x) x.DataDate >= monthStart AndAlso x.DataDate <= monthEnd AndAlso x.RoomOccupancyValue.HasValue).
+            Select(Function(x) x.RoomOccupancyValue.Value).
+            ToList()
+        Return If(values.Count = 0, 0D, values.Average())
+    End Function
+
+    Private Function IsWiseA7Hotel(hotelId As String) As Boolean
+        Return String.Equals(hotelId, "H04", StringComparison.OrdinalIgnoreCase) OrElse
+               String.Equals(hotelId, "H06", StringComparison.OrdinalIgnoreCase)
+    End Function
+
+    Private Function SumA7OccupancyTotals(rows As List(Of ReportRow), startDate As DateTime, endDate As DateTime) As (RoomCount As Decimal, TotalRoom As Decimal)
+        If endDate < startDate Then
+            Return (0D, 0D)
+        End If
+
+        Dim selected = rows.Where(Function(x) x.DataDate >= startDate AndAlso x.DataDate <= endDate).ToList()
+        Return (selected.Sum(Function(x) CDec(x.RoomCount)), selected.Sum(Function(x) CDec(x.RoomTotal)))
+    End Function
+
+    Private Function LoadWiseOccupancyTotals(hotelId As String, startDate As DateTime, endDate As DateTime) As (RoomCount As Decimal, TotalRoom As Decimal)
+        If endDate < startDate Then
+            Return (0D, 0D)
+        End If
+
+        Dim connStr = NormalizeSqlServerConnectionString(GetWiseSqlServerConnectionString(hotelId))
+        If String.IsNullOrWhiteSpace(connStr) Then
+            Return (0D, 0D)
+        End If
+
+        Const sql As String = "
+SELECT
+    SUM(total_room) AS total_room,
+    SUM(isorder) AS isorder
+FROM (
+    SELECT
+        ddate,
+        COALESCE(TOTAL_ROOM, 0) AS total_room,
+        SUM(COALESCE(ROOM_GROUP, 0) + COALESCE(ROOM_FIT, 0) + COALESCE(ROOM_WI, 0)) AS isorder
+    FROM daytot
+    WHERE CONVERT(varchar(10), DDATE, 111) BETWEEN @start_date AND @end_date
+    GROUP BY ddate, total_room
+) AS sub
+"
+
+        Using conn As New SqlConnection(connStr)
+            conn.Open()
+            Using cmd As New SqlCommand(sql, conn)
+                cmd.Parameters.AddWithValue("@start_date", startDate.ToString("yyyy/MM/dd", CultureInfo.InvariantCulture))
+                cmd.Parameters.AddWithValue("@end_date", endDate.ToString("yyyy/MM/dd", CultureInfo.InvariantCulture))
+
+                Using reader = cmd.ExecuteReader()
+                    If reader.Read() Then
+                        Return (ParseDecimal(reader("isorder")), ParseDecimal(reader("total_room")))
+                    End If
+                End Using
+            End Using
+        End Using
+
+        Return (0D, 0D)
+    End Function
+
+    Private Function GetWiseSqlServerConnectionString(hotelId As String) As String
+        Dim key = $"Conn_SQLSERVER_{hotelId.ToUpperInvariant()}"
+        Dim envValue = Environment.GetEnvironmentVariable(key)
+        If Not String.IsNullOrWhiteSpace(envValue) Then
+            Return envValue
+        End If
+
+        Try
+            If Not File.Exists(WiseLocalConfigFile) Then
+                Return ""
+            End If
+
+            Dim doc As New XmlDocument()
+            doc.Load(WiseLocalConfigFile)
+            Dim node = doc.SelectSingleNode($"/appSettings/add[@key='{key}']")
+            If node Is Nothing OrElse node.Attributes("value") Is Nothing Then
+                Return ""
+            End If
+
+            Return node.Attributes("value").Value
+        Catch ex As Exception
+            Return ""
+        End Try
+    End Function
+
+    Private Function NormalizeSqlServerConnectionString(connStr As String) As String
+        If String.IsNullOrWhiteSpace(connStr) Then
+            Return ""
+        End If
+
+        Dim parts = connStr.Split(";"c, StringSplitOptions.RemoveEmptyEntries).
+            Where(Function(x)
+                      Dim key = x.Split("="c, 2)(0).Trim()
+                      Return Not key.Equals("Network Library", StringComparison.OrdinalIgnoreCase) AndAlso
+                             Not key.Equals("NetworkLibrary", StringComparison.OrdinalIgnoreCase) AndAlso
+                             Not key.Equals("Net", StringComparison.OrdinalIgnoreCase)
+                  End Function)
+
+        Return String.Join(";", parts)
+    End Function
+
+    Private Function GetMonthlySummaryStartMonth(baseDate As DateTime) As DateTime
+        Return New DateTime(baseDate.Year, baseDate.Month, 1).AddMonths(-1)
     End Function
 
     Private Function BuildHtml(hotel As HotelInfo,

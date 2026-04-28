@@ -42,6 +42,14 @@
 - 用來取 SMTP 寄件者
 - 用來取每館不同收件者
 
+### Wise SQL Server daytot
+
+- 只用在 H04 / H06 的月住房率摘要
+- H04 / H06 在 `2026/04/08` 切到 A7
+- `2026/04/07` 以前的月資料需從 Wise SQL Server `daytot` 補回
+- 連線字串優先讀環境變數 `Conn_SQLSERVER_H04` / `Conn_SQLSERVER_H06`
+- 若環境變數沒有值，會讀 `D:\00.VSCode\Sendmail_WiseReportTot\bin\Debug\SendmailReportTot.local.config`
+
 ## athena_setting 規則
 
 ### 寄件者
@@ -108,6 +116,23 @@ Email 下方明細要顯示：
 - 昨日
 - 今日起算未來 120 天
 
+## 月摘要規則
+
+上方「年月」摘要顯示基準日上個月起算 4 個月。
+
+例：基準日 `2026/04/28` 要顯示：
+
+- `2026/03`
+- `2026/04`
+- `2026/05`
+- `2026/06`
+
+H04 / H06 月住房率要注意 Wise / A7 切換：
+
+- `2026/04/07` 以前：Wise SQL Server `daytot`
+- `2026/04/08` 以後：MySQL `athena_report01`
+- 跨系統月份要合併住房數與總房數後重新計算，不可直接平均兩邊百分比
+
 ## 表格欄位規則
 
 目前下方明細使用：
@@ -159,6 +184,9 @@ Email 內文要顯示：
 - `dist\SendEmail_A7report_portable`
 - 不需要 Python / Playwright
 - 只要能連 MySQL 與 SMTP 即可
+- H04 / H06 若要補 `2026/04/07` 以前月住房率，還需要 Wise SQL Server 連線
+- 更新可攜版使用：
+  `dotnet publish -c Release -r win-x64 --self-contained true -o .\dist\SendEmail_A7report_portable`
 
 ## 下次修改時優先確認
 
@@ -167,3 +195,4 @@ Email 內文要顯示：
 3. `recipient-group` 對應的 `func_name` 是否正確
 4. 主旨時間是否仍使用發信當下時間
 5. 顏色規則與底部說明文字是否一致
+6. H04 / H06 月摘要是否仍符合 Wise / A7 切換日 `2026/04/08`
