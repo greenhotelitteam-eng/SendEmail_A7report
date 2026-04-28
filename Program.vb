@@ -119,6 +119,10 @@ Module Program
 
                     Dim recipientSettings = LoadRecipientSettings(conn, hotel.HotelId, options.RecipientGroup)
                     Console.WriteLine($"Recipient loaded: {recipientSettings IsNot Nothing}")
+                    If recipientSettings IsNot Nothing Then
+                        Console.WriteLine($"Recipient To: {FormatAddressesForLog(recipientSettings.ToAddresses)}")
+                        Console.WriteLine($"Recipient Cc: {FormatAddressesForLog(recipientSettings.CcAddresses)}")
+                    End If
 
                     If Not options.PreviewOnly Then
                         If senderSettings Is Nothing Then
@@ -391,6 +395,23 @@ LIMIT 1
         End If
 
         Return settings
+    End Function
+
+    Private Function FormatAddressesForLog(addresses As IEnumerable(Of String)) As String
+        If addresses Is Nothing Then
+            Return "(none)"
+        End If
+
+        Dim cleanAddresses = addresses.
+            Where(Function(x) Not String.IsNullOrWhiteSpace(x)).
+            Select(Function(x) x.Trim()).
+            ToList()
+
+        If cleanAddresses.Count = 0 Then
+            Return "(none)"
+        End If
+
+        Return String.Join("; ", cleanAddresses)
     End Function
 
     Private Function SplitAddresses(raw As String) As List(Of String)
